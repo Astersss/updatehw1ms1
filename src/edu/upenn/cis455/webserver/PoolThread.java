@@ -10,8 +10,12 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.URLDecoder;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Locale;
 import java.util.Stack;
 import java.util.StringTokenizer;
+import java.util.TimeZone;
 
 import org.apache.log4j.Logger;
 
@@ -39,10 +43,12 @@ public class PoolThread extends Thread {
 		StringTokenizer tokenizer = null;
 		String httpMethod = null;
 		String httpVersion = null;
+		String httpVersionNum = null;
 		while (!isStopped()) {
 
 			try {
 				System.out.println("********");
+				
 				socket = (Socket) taskQueue.dequeue();
 				System.out.println("********" + socket.getPort());
 			} catch (Exception e) {
@@ -59,29 +65,27 @@ public class PoolThread extends Thread {
 			try {
 				inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				// e.printStackTrace();
+
 				logger.error("IOException occurs when getInputStream() method is called");
 				continue;
 			}
 			try {
 				outToClient = new DataOutputStream(socket.getOutputStream());
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				// e.printStackTrace();
+
 				logger.error("IOException occurs when getOutputStream() method is called");
 				continue;
 			}
 			try {
 				requestString = inFromClient.readLine();
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				// e.printStackTrace();
+
 				logger.error("IOException occurs when reading from input stream");
 				continue;
 			}
 
-			String headerLine = requestString;
+			String headerLine = requestString; // GET / HTTP/1.1
+
 			try {
 				tokenizer = new StringTokenizer(headerLine);
 			} catch (NullPointerException e) {
@@ -109,11 +113,18 @@ public class PoolThread extends Thread {
 				continue;
 			}
 
+			try {
+				httpVersionNum = httpVersion.split("/")[1];
+			} catch (NullPointerException e) {
+				logger.error("Http version number missed");
+				continue;
+			}
+			System.out.println("httpVersionNum " + httpVersionNum);
 			StringBuffer responseBuffer = new StringBuffer();
 			responseBuffer.append("<b>This is the HTTP Server Home Page.... </b><BR>");
 			responseBuffer.append("<b>Files in current root path</b><BR>");
-			System.out.println("httpQueryString is " + httpQueryString);
-			System.out.println("httpVersion is " + httpVersion);
+			// System.out.println("httpQueryString is " + httpQueryString);
+			// System.out.println("httpVersion is " + httpVersion);
 			System.out.println("*The HTTP request string is ....");
 
 			try {
@@ -122,75 +133,89 @@ public class PoolThread extends Thread {
 				// System.out.println("**" + requestString);
 				// requestString = inFromClient.readLine();
 				// }
-				if (httpMethod.equals("GET")) {
-					if (httpQueryString.equals("/shutdown")) {
-						System.out.println("**shutdown***");
-						logger.info("start processing shutdown");
-						// sendResponse(200, responseBuffer.toString(), false);
-						(new Thread(new Runnable() {
-							@Override
-							public void run() {
-								HttpServer.stop();
-							}
-
-						})).start();
-						// outToClient.flush();
-						return;
+				if (!httpMethod.equals("GET") && !httpMethod.equals("HEAD")) {
+					try {
+						sendResponse(501, "<b>501 Not Implemented</b>", false, httpVersionNum);
+					} catch (Exception e) {
+						logger.error("501 response sent failed");
+						continue;
 					}
+				}
 
-					else if (httpQueryString.equals("/control")) {
-						String name = "Ao Sun</BR>";
-						String seasLogin = "SEAS Login: sunao1</BR>";
-						String threadsInfo = "All threads in thread pool: <BR>";
-						for (PoolThread thread : this.threadPool.getAllThreads()) {
-							if (thread.getState() == Thread.State.RUNNABLE) {
-								String threadURL = thread.getURL();
-								threadsInfo += thread.getName() + thread.getState() + ": " + threadURL + "<BR>";
-							} else {
-								threadsInfo += thread.getName() + thread.getState() + "<BR>";
-							}
-						}
-						String buttonlink = "<div class= \"link-button\"><a href=\"/shutdown\">Shutdown</a></div>"
-								+ "<BR>";
-						String controlPage = name + seasLogin + threadsInfo + buttonlink;
-						sendResponse(200, controlPage, false);
-					}
+				else if (httpMethod.equals("GET") && httpQueryString.equals("/shutdown")) {
 
-					else {
-						System.out.println("*******" + httpQueryString);
-						String fileName = httpQueryString.replaceFirst("/", "");
+					logger.info("start processing shutdown");
 
-						if (!checkValid(fileName)) {
-							try {
-								sendResponse(403, "<b>The Request path is forbidden...</b>", false);
-
-							} catch (Exception e) {
-								e.printStackTrace();
-							} finally {
-								socket.close();
-							}
+					(new Thread(new Runnable() {
+						@Override
+						public void run() {
+							HttpServer.stop();
 						}
 
-						String filePath = this.rootPath + httpQueryString;
-						System.out.println("filePath is " + filePath);
-						// if now it is opening a file
-						if (new File(filePath).isFile()) {
+					})).start();
+					// outToClient.flush();
+					return;
+				}
+
+				else if (httpMethod.equals("GET") && httpQueryString.equals("/control")) {
+					String name = "Ao Sun</BR>";
+					String seasLogin = "SEAS Login: sunao1</BR>";
+					String threadsInfo = "All threads in thread pool: <BR>";
+					for (PoolThread thread : this.threadPool.getAllThreads()) {
+						if (thread.getState() == Thread.State.RUNNABLE) {
+							String threadURL = thread.getURL();
+							threadsInfo += thread.getName() + thread.getState() + ": " + threadURL + "<BR>";
+						} else {
+							threadsInfo += thread.getName() + thread.getState() + "<BR>";
+						}
+					}
+					String buttonlink = "<div class= \"link-button\"><a href=\"/shutdown\">Shutdown</a></div>" + "<BR>";
+					String controlPage = name + seasLogin + threadsInfo + buttonlink;
+					sendResponse(200, controlPage, false, httpVersionNum);
+				}
+
+				else {
+					boolean headReq = httpMethod.equals("GET") ? false : true;
+					System.out.println("*******" + httpQueryString);
+					String fileName = httpQueryString;
+
+					if (!checkValid(fileName)) {
+						try {
+							sendResponse(403, "<b>The Request path is forbidden...</b>", false, httpVersionNum);
+
+						} catch (Exception e) {
+							e.printStackTrace();
+						} finally {
+							socket.close();
+						}
+					}
+
+					String filePath = this.rootPath + fileName;
+					System.out.println("filePath is " + filePath);
+					// if now it is opening a file
+					if (new File(filePath).isFile()) {
+						if (headReq) {
+							sendHeader(200, httpVersionNum);
+						} else {
 							try {
-								sendResponse(200, filePath, true);
+								sendResponse(200, filePath, true, httpVersionNum);
 							} catch (Exception e) {
 								logger.error("send 200 response failed");
 							}
-						} else if (new File(filePath).isDirectory()) {
-
-							showFileForFolder(filePath, responseBuffer);
-						} else {
-							try {
-								sendResponse(404, "<b>404 The Requested resource not found...</b>", false);
-							} catch(Exception e) {
-								logger.error("send bad request response failed");
-							}
 						}
-					}	
+					} else if (new File(filePath).isDirectory()) {
+						if(headReq) {
+							sendHeader(200, httpVersionNum);
+						} else {
+							showFileForFolder(filePath, responseBuffer, httpVersionNum);
+						}
+					} else {
+						try {
+							sendResponse(404, "<b>404 The Requested resource not found...</b>", false, httpVersionNum);
+						} catch (Exception e) {
+							logger.error("send bad request response failed");
+						}
+					}
 				}
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
@@ -203,6 +228,7 @@ public class PoolThread extends Thread {
 				e.printStackTrace();
 			}
 		}
+
 	}
 
 	public boolean checkValid(String path) {
@@ -222,47 +248,127 @@ public class PoolThread extends Thread {
 		return true;
 	}
 
-	public void showFileForFolder(String path, StringBuffer buffer) {
+	public void showFileForFolder(String path, StringBuffer buffer, String httpVersionNum) {
 
-		System.out.println("99999");
 		File folder = new File(path);
 		File[] listOfFiles = folder.listFiles();
 		for (File file : listOfFiles) {
 
-			String filePath = path + "/" + file.getName();
+			String filePath = path + file.getName();
 			System.out.println(filePath);
 			String link = filePath.substring(rootPath.length());
 			System.out.println(link);
-			String href = "<a href=" + "\"" + link + "\">" + file.getName() + "</a>";
+			String href = "<a href=" + "\"" + link + "/" + "\">" + file.getName() + "</a>";
 			buffer.append(href + "<BR>");
 
 		}
 		try {
-			sendResponse(200, buffer.toString(), false);
-		} catch(Exception e) {
+			sendResponse(200, buffer.toString(), false, httpVersionNum);
+		} catch (Exception e) {
 			logger.error("send response failed");
 		}
 	}
 
-	public void sendResponse(int statusCode, String responseString, boolean isFile) {
+	public void sendHeader(int statusCode, String httpVersion) {
+		String statusLine = getStatusLine(statusCode, httpVersion);
+		String time = "Date: " + getServerTime() + "\r\n";
+		String serverdetails = "Server: Java HTTPServer\r\n";
+		String contentType = "Content-Type: " + getContentType() + "\r\n";
+
+		try {
+			outToClient.writeBytes(statusLine);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		try {
+			outToClient.writeBytes(time);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		try {
+			outToClient.writeBytes(serverdetails);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		try {
+			outToClient.writeBytes(contentType);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+
+	public String getContentType() {
+		String file = httpQueryString;
+		if (!file.contains(".")) {
+			return "";
+		} else {
+			String ret = "";
+			String fileext = file.split("\\.")[1];
+			switch (fileext) {
+			case "txt":
+				ret = "text/html";
+				break;
+			case "html":
+				ret = "text/html";
+				break;
+			case "jpg":
+				ret = "image/jpg";
+				break;
+			case "jpeg":
+				ret = "image/jpeg";
+				break;
+			case "gif":
+				ret = "image/gif";
+				break;
+			case "png":
+				ret = "image/png";
+				break;
+			}
+			return ret;
+		}
+	}
+
+	public String getServerTime() {
+		Calendar calendar = Calendar.getInstance();
+		SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+		dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+		return dateFormat.format(calendar.getTime());
+	}
+
+	public String getStatusLine(int statusCode, String httpVersion) {
 		String statusLine = null;
-		String serverdetails = "Server: Java HTTPServer";
+		switch (statusCode) {
+		case 200:
+			statusLine = "HTTP/" + httpVersion + " 200 OK" + "\r\n";
+			break;
+		case 404:
+			statusLine = "HTTP/" + httpVersion + " 404 Not Found" + "\r\n";
+			break;
+		case 403:
+			statusLine = "HTTP/" + httpVersion + " 403 Forbidden" + "\r\n";
+			break;
+		case 501:
+			statusLine = "HTTP/" + httpVersion + " 501 Not Implemented" + "\r\n";
+			break;
+		}
+		return statusLine;
+	}
+
+	public void sendResponse(int statusCode, String responseString, boolean isFile, String httpVersion) {
+		String statusLine = null;
+		String serverdetails = "Server: Java HTTPServer\r\n";
 		String contentLengthLine = null;
 		String fileName = null;
 		String contentTypeLine = "Content-Type: text/html" + "\r\n";
 		FileInputStream fin = null;
 
-		switch (statusCode) {
-		case 200:
-			statusLine = "HTTP/1.1 200 OK" + "\r\n";
-			break;
-		case 404:
-			statusLine = "HTTP/1.1 404 Not Found" + "\r\n";
-			break;
-		case 403:
-			statusLine = "HTTP/1.1 403 Forbidden" + "\r\n";
-			break;
-		}
+		statusLine = getStatusLine(statusCode, httpVersion);
 
 		if (isFile) {
 			fileName = responseString;
@@ -345,7 +451,7 @@ public class PoolThread extends Thread {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		
+
 	}
 
 	public void sendFile(FileInputStream fin, DataOutputStream out) throws Exception {

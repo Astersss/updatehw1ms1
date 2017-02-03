@@ -29,7 +29,7 @@ class HttpServer {
 		  try{
 			  if(!isTerminate) {
 				  socket = serverSocket.accept();
-				  socket.setSoTimeout(10000); 
+				  socket.setSoTimeout(30000); 
 			  }
 		  }catch(IOException e) {
 			  System.err.println("Accept failed.");
@@ -45,6 +45,7 @@ class HttpServer {
 		  } else {
 			  try {
 				taskQueue.enqueue(socket);
+				System.out.println("enqueue task");
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
