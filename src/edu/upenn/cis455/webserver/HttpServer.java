@@ -11,6 +11,11 @@ class HttpServer {
 	public static void main(String args[]) throws IOException
   {
     /* your code here */
+	  if(args.length < 2) {
+		  System.out.println("Name: Ao Sun");
+		  System.out.println("SEAS login name: sunao1");
+		  return;
+	  }
 	  int portNum = Integer.parseInt(args[0]);
 	  String rootDirectory = args[1];
 	  System.out.println(rootDirectory);

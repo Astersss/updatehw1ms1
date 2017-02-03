@@ -12,6 +12,7 @@ import java.net.Socket;
 import java.net.URLDecoder;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Stack;
 import java.util.StringTokenizer;
@@ -31,19 +32,53 @@ public class PoolThread extends Thread {
 	String httpQueryString;
 	ThreadPool threadPool;
 	private String rootPath;
+	boolean continue_request = false;
+	
 
 	public PoolThread(BlockingQueue queue, ThreadPool threads, String path) {
 		taskQueue = queue;
 		threadPool = threads;
 		rootPath = path;
 	}
-
+	
+	
+	public HashMap<String, String> getHeaders() {
+		String line = "";
+		HashMap<String, String> headers = new HashMap<>();
+		
+		try {
+			while(inFromClient.ready()) {
+				line = inFromClient.readLine();
+				if(line.isEmpty()) {
+					continue;
+				}
+				String[] tmp = line.split(": ");
+				if(tmp.length == 0) {
+					//send header error response
+					continue;
+				} else {
+					String key = tmp[0].trim();
+					String value = tmp[1].trim();
+					if(!headers.containsKey(key)) {
+						headers.put(key, value);
+					}
+				}
+			}
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			logger.error("Errors happen while reading headers");
+		}
+		return headers;
+	}
+	
+	
 	public void run() {
 		String requestString = null;
 		StringTokenizer tokenizer = null;
 		String httpMethod = null;
 		String httpVersion = null;
 		String httpVersionNum = null;
+		
 		while (!isStopped()) {
 
 			try {
@@ -128,12 +163,32 @@ public class PoolThread extends Thread {
 			System.out.println("*The HTTP request string is ....");
 
 			try {
-				// while(inFromClient.ready()) {
-				// responseBuffer.append(requestString + "<BR>");
-				// System.out.println("**" + requestString);
-				// requestString = inFromClient.readLine();
-				// }
-				if (!httpMethod.equals("GET") && !httpMethod.equals("HEAD")) {
+//				 while(inFromClient.ready()) {
+//				// responseBuffer.append(requestString + "<BR>");
+//				 System.out.println("**" + requestString);
+//				 requestString = inFromClient.readLine();
+//				 }
+				
+				HashMap<String, String> map = getHeaders();
+//				for(String key: map.keySet()) {
+//					System.out.println("key is " + key);
+//					System.out.println("value is " + map.get(key));
+//				}
+//				
+				if(map.containsKey("Expect")) {
+					continue_request = true;
+				}
+				
+				if(httpVersionNum.equals("1.1") && !map.containsKey("Host")) {
+					try {
+						sendResponse(400, "<b>400 Bad Request</b>", false, httpVersionNum);
+					} catch(Exception e) {
+						logger.error("400 response sent failed");
+						continue;
+					}
+				}
+				
+				else if (!httpMethod.equals("GET") && !httpMethod.equals("HEAD")) {
 					try {
 						sendResponse(501, "<b>501 Not Implemented</b>", false, httpVersionNum);
 					} catch (Exception e) {
@@ -274,7 +329,15 @@ public class PoolThread extends Thread {
 		String time = "Date: " + getServerTime() + "\r\n";
 		String serverdetails = "Server: Java HTTPServer\r\n";
 		String contentType = "Content-Type: " + getContentType() + "\r\n";
-
+		if(continue_request) {
+			try {
+				outToClient.writeBytes("HTTP/" + httpVersion + " 100 Continue\r\n");
+				
+			} catch(IOException e) {
+				logger.error("first line sent failed");
+			}
+		}
+		
 		try {
 			outToClient.writeBytes(statusLine);
 		} catch (IOException e) {
@@ -347,6 +410,9 @@ public class PoolThread extends Thread {
 		case 200:
 			statusLine = "HTTP/" + httpVersion + " 200 OK" + "\r\n";
 			break;
+		case 400:
+			statusLine = "HTTP/" + httpVersion + " 400 Bad Request" + "\r\n";
+			break;
 		case 404:
 			statusLine = "HTTP/" + httpVersion + " 404 Not Found" + "\r\n";
 			break;
@@ -393,6 +459,7 @@ public class PoolThread extends Thread {
 		}
 
 		try {
+			//System.out.println("statusCode" + statusCode);
 			outToClient.writeBytes(statusLine);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
