@@ -82,10 +82,9 @@ public class PoolThread extends Thread {
 		while (!isStopped()) {
 
 			try {
-				System.out.println("********");
-				
+
 				socket = (Socket) taskQueue.dequeue();
-				System.out.println("********" + socket.getPort());
+				//System.out.println("********" + socket.getPort());
 			} catch (Exception e) {
 				System.out.println("terminated while in waiting status");
 				break;
@@ -93,18 +92,40 @@ public class PoolThread extends Thread {
 			// logger info
 			logger.info("Successfully get the socket");
 			if (socket == null) {
-				continue;
+				try {
+					socket.close();
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				
 			}
 			// System.out.println("The Client " + socket.getInetAddress() + ":"
 			// + socket.getPort() + " is connected");
 			try {
+				if(socket.isClosed()) {
+					continue;
+				}
 				inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 			} catch (IOException e) {
 
 				logger.error("IOException occurs when getInputStream() method is called");
-				continue;
+				try {
+					
+					inFromClient.close();
+					socket.close();
+					
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+				//continue;
 			}
 			try {
+				if(socket.isClosed()) {
+					continue;
+				}
 				outToClient = new DataOutputStream(socket.getOutputStream());
 			} catch (IOException e) {
 
@@ -116,6 +137,12 @@ public class PoolThread extends Thread {
 			} catch (IOException e) {
 
 				logger.error("IOException occurs when reading from input stream");
+				try {
+					inFromClient.close();
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					logger.error("close failed");
+				}
 				continue;
 			}
 
@@ -154,13 +181,13 @@ public class PoolThread extends Thread {
 				logger.error("Http version number missed");
 				continue;
 			}
-			System.out.println("httpVersionNum " + httpVersionNum);
+			//System.out.println("httpVersionNum " + httpVersionNum);
 			StringBuffer responseBuffer = new StringBuffer();
-			responseBuffer.append("<b>This is the HTTP Server Home Page.... </b><BR>");
+			//responseBuffer.append("<b>This is the HTTP Server Home Page.... </b><BR>");
 			responseBuffer.append("<b>Files in current root path</b><BR>");
 			// System.out.println("httpQueryString is " + httpQueryString);
 			// System.out.println("httpVersion is " + httpVersion);
-			System.out.println("*The HTTP request string is ....");
+			//System.out.println("*The HTTP request string is ....");
 
 			try {
 //				 while(inFromClient.ready()) {
@@ -246,29 +273,52 @@ public class PoolThread extends Thread {
 					}
 
 					String filePath = this.rootPath + fileName;
-					System.out.println("filePath is " + filePath);
+					//System.out.println("filePath is " + filePath);
 					// if now it is opening a file
 					if (new File(filePath).isFile()) {
+						
 						if (headReq) {
-							sendHeader(200, httpVersionNum);
+							System.out.println("headReq!!");
+							try {
+								sendHeader(200, httpVersionNum);
+							} catch(Exception e) {
+								socket.close();
+							}
 						} else {
 							try {
+							
+								//System.out.println("getReq!!");
+								if(socket.isClosed()) {
+									continue;
+								}
 								sendResponse(200, filePath, true, httpVersionNum);
 							} catch (Exception e) {
 								logger.error("send 200 response failed");
+								continue;
 							}
 						}
 					} else if (new File(filePath).isDirectory()) {
+						
 						if(headReq) {
 							sendHeader(200, httpVersionNum);
 						} else {
-							showFileForFolder(filePath, responseBuffer, httpVersionNum);
+							try {
+								if(socket.isClosed()) {
+									continue;
+								}
+								showFileForFolder(filePath, responseBuffer, httpVersionNum);
+							} catch(Exception e) {
+								logger.error("show file failed");
+								
+								continue;
+							}
 						}
 					} else {
 						try {
 							sendResponse(404, "<b>404 The Requested resource not found...</b>", false, httpVersionNum);
 						} catch (Exception e) {
 							logger.error("send bad request response failed");
+							continue;
 						}
 					}
 				}
@@ -277,6 +327,8 @@ public class PoolThread extends Thread {
 				e.printStackTrace();
 			}
 			try {
+				inFromClient.close();
+				outToClient.close();
 				socket.close();
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
@@ -287,7 +339,7 @@ public class PoolThread extends Thread {
 	}
 
 	public boolean checkValid(String path) {
-		Stack<String> stack = new Stack<>();
+		Stack<String> stack = new Stack<String>();
 		String[] folders = path.split("/");
 		for (String str : folders) {
 			if (str.equals("..")) {
@@ -310,17 +362,20 @@ public class PoolThread extends Thread {
 		for (File file : listOfFiles) {
 
 			String filePath = path + file.getName();
-			System.out.println(filePath);
+			//System.out.println(filePath);
 			String link = filePath.substring(rootPath.length());
-			System.out.println(link);
+			//System.out.println(link);
 			String href = "<a href=" + "\"" + link + "/" + "\">" + file.getName() + "</a>";
 			buffer.append(href + "<BR>");
 
 		}
 		try {
-			sendResponse(200, buffer.toString(), false, httpVersionNum);
+			if(!socket.isClosed()) {
+				sendResponse(200, buffer.toString(), false, httpVersionNum);
+			}
 		} catch (Exception e) {
 			logger.error("send response failed");
+			
 		}
 	}
 
@@ -340,28 +395,13 @@ public class PoolThread extends Thread {
 		
 		try {
 			outToClient.writeBytes(statusLine);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
 			outToClient.writeBytes(time);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-		try {
 			outToClient.writeBytes(serverdetails);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
 			outToClient.writeBytes(contentType);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
-			e.printStackTrace();
+			logger.error("write to client failed");
+		
 		}
 
 	}
@@ -460,55 +500,79 @@ public class PoolThread extends Thread {
 
 		try {
 			//System.out.println("statusCode" + statusCode);
-			outToClient.writeBytes(statusLine);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
-			outToClient.writeBytes(serverdetails);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
-			outToClient.writeBytes(contentTypeLine);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
-			outToClient.writeBytes(contentLengthLine);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
-			outToClient.writeBytes("Connection: close\r\n");
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		try {
+			if(!socket.isClosed()) 
+				outToClient.writeBytes(statusLine);
+			if(!socket.isClosed()) 	
+				outToClient.writeBytes(serverdetails);
+			if(!socket.isClosed()) 
+				outToClient.writeBytes(contentTypeLine);
+			if(!socket.isClosed()) 
+				outToClient.writeBytes(contentLengthLine);
+				outToClient.writeBytes("Connection: close\r\n");
+			
 			outToClient.writeBytes("\r\n");
+			
+			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
-			e.printStackTrace();
+			
+			logger.error("write to client error");
+			try {
+				outToClient.flush();
+				outToClient.close();
+				socket.close();
+			} catch (IOException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+			
 		}
+		//try {
+		//	outToClient.writeBytes(serverdetails);
+		//} catch (IOException e) {
+			// TODO Auto-generated catch block
+		//	e.printStackTrace();
+		//}
+		//try {
+		//	outToClient.writeBytes(contentTypeLine);
+		//} catch (IOException e) {
+			// TODO Auto-generated catch block
+		//	e.printStackTrace();
+		//}
+		//try {
+		//	outToClient.writeBytes(contentLengthLine);
+		//} catch (IOException e) {
+			// TODO Auto-generated catch block
+			//e.printStackTrace();
+		//}
+	//	try {
+	//		outToClient.writeBytes("Connection: close\r\n");
+	//	} catch (IOException e) {
+			// TODO Auto-generated catch block
+	//		e.printStackTrace();
+	//	}
+	//	try {
+	//		outToClient.writeBytes("\r\n");
+	//	} catch (IOException e) {
+	//		// TODO Auto-generated catch block
+	//		e.printStackTrace();
+	//	}
 
 		if (isFile) {
 			try {
-				sendFile(fin, outToClient);
+				if(!socket.isClosed())
+					sendFile(fin, outToClient);
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
+				
 			}
 		} else {
 			try {
 				outToClient.writeBytes(responseString);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
-				e.printStackTrace();
+				logger.error("write response failed");
 			}
 		}
 
@@ -521,13 +585,31 @@ public class PoolThread extends Thread {
 
 	}
 
-	public void sendFile(FileInputStream fin, DataOutputStream out) throws Exception {
+	public void sendFile(FileInputStream fin, DataOutputStream out) {
 		byte[] buffer = new byte[1024];
 		int bytesRead;
-		while ((bytesRead = fin.read(buffer)) != -1) {
-			out.write(buffer, 0, bytesRead);
+		
+		try {
+			while ((bytesRead = fin.read(buffer)) != -1 && !socket.isClosed()) {
+				
+				out.write(buffer, 0, bytesRead);
+			}
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			logger.error("send file error");
+			try {
+				socket.close();
+			} catch (IOException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
 		}
-		fin.close();
+		try {
+			fin.close();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	}
 
 	public synchronized boolean isStopped() {

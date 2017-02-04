@@ -19,7 +19,7 @@ class HttpServer {
 	  int portNum = Integer.parseInt(args[0]);
 	  String rootDirectory = args[1];
 	  System.out.println(rootDirectory);
-	  int noOfThreads = 10;
+	  int noOfThreads = 20;
 	  int maxNoOfTasks = 10;
 	  org.apache.log4j.BasicConfigurator.configure();
 	  serverSocket = new ServerSocket(portNum);
@@ -34,7 +34,7 @@ class HttpServer {
 		  try{
 			  if(!isTerminate) {
 				  socket = serverSocket.accept();
-				  socket.setSoTimeout(30000); 
+				  socket.setSoTimeout(20000); 
 			  }
 		  }catch(IOException e) {
 			  System.err.println("Accept failed.");
