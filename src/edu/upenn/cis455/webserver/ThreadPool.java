@@ -8,9 +8,9 @@ public class ThreadPool {
 	public boolean isStopped  = false;
 	private String rootPath;
 	
-	public ThreadPool(int noOfThreads, int maxNoOfTasks, String rootPath) {
+	public ThreadPool(int noOfThreads, BlockingQueue taskQueue, String rootPath) {
 		this.rootPath = rootPath;
-		taskQueue = new BlockingQueue(maxNoOfTasks);
+		this.taskQueue = taskQueue;
 		for(int i = 0; i < noOfThreads; i++) {
 			threads.add(new PoolThread(taskQueue, this, rootPath));
 		}
@@ -19,10 +19,10 @@ public class ThreadPool {
 		}
 	}
 	
-	public synchronized BlockingQueue getTaskQueue() {
-		
-		return this.taskQueue;
-	}
+//	public synchronized BlockingQueue getTaskQueue() {
+//		
+//		return this.taskQueue;
+//	}
 	
 //	public synchronized void execute(Runnable task) throws Exception {
 //		if(this.isStopped) throw 
