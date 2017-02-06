@@ -1,6 +1,7 @@
 package edu.upenn.cis455.webserver;
 
 import java.io.BufferedReader;
+
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,6 +11,8 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.URLDecoder;
+import java.util.Date;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -44,21 +47,19 @@ public class PoolThread extends Thread {
 	}
 
 	public HashMap<String, String> getHeaders() throws IOException {
-		String line = "";
+		String line;
 		HashMap<String, String> headers = new HashMap<>();
 
-		while (inFromClient.ready()) {
-			line = inFromClient.readLine();
-			if (line.isEmpty()) {
-				continue;
-			}
+		while (!(line = inFromClient.readLine()).trim().equals("")) {
+
 			String[] tmp = line.split(": ");
 			if (tmp.length < 2) {
-				// send header error response
 				continue;
 			} else {
-				String key = tmp[0].trim();
+				String key = tmp[0].trim().toLowerCase();
+				
 				String value = tmp[1].trim();
+				
 				if (!headers.containsKey(key)) {
 					headers.put(key, value);
 				}
@@ -80,7 +81,7 @@ public class PoolThread extends Thread {
 			try {
 
 				socket = (Socket) taskQueue.dequeue();
-				// System.out.println("********" + socket.getPort());
+
 			} catch (Exception e) {
 				System.out.println("terminated while in waiting status");
 				break;
@@ -93,7 +94,7 @@ public class PoolThread extends Thread {
 			// System.out.println("The Client " + socket.getInetAddress() + ":"
 			// + socket.getPort() + " is connected");
 			try {
-				
+
 				inFromClient = new BufferedReader(new InputStreamReader(
 						socket.getInputStream()));
 			} catch (IOException e) {
@@ -105,10 +106,10 @@ public class PoolThread extends Thread {
 					// TODO Auto-generated catch block
 					e1.printStackTrace();
 				}
-				
+
 			}
 			try {
-				
+
 				outToClient = new DataOutputStream(socket.getOutputStream());
 			} catch (IOException e) {
 
@@ -117,6 +118,7 @@ public class PoolThread extends Thread {
 			}
 			try {
 				requestString = inFromClient.readLine();
+
 			} catch (IOException e) {
 
 				logger.error("IOException occurs when reading from input stream");
@@ -141,10 +143,8 @@ public class PoolThread extends Thread {
 				continue;
 			}
 
-
-			// System.out.println("httpVersionNum " + httpVersionNum);
 			StringBuffer responseBuffer = new StringBuffer();
-			// responseBuffer.append("<b>This is the HTTP Server Home Page.... </b><BR>");
+
 			responseBuffer.append("<b>Files in current root path</b><BR>");
 
 			try {
@@ -155,14 +155,16 @@ public class PoolThread extends Thread {
 					continue_request = true;
 				}
 
-				if (httpVersionNum.equals("1.1") && !map.containsKey("Host")) {
+				if (httpVersionNum.equals("1.1") && !map.containsKey("host")) {
+
 					try {
 						sendResponse(400, "<b>400 Bad Request</b>", false,
 								httpVersionNum);
 					} catch (Exception e) {
 						logger.error("400 response sent failed");
-						continue;
+
 					}
+					continue;
 				}
 
 				else if (!httpMethod.equals("GET")
@@ -188,7 +190,7 @@ public class PoolThread extends Thread {
 						}
 
 					})).start();
-					// outToClient.flush();
+
 					return;
 				}
 
@@ -215,6 +217,7 @@ public class PoolThread extends Thread {
 				}
 
 				else {
+					
 					boolean headReq = httpMethod.equals("GET") ? false : true;
 
 					String fileName = httpQueryString;
@@ -233,16 +236,44 @@ public class PoolThread extends Thread {
 					}
 
 					String filePath = this.rootPath + fileName;
-					// System.out.println("filePath is " + filePath);
-					// if now it is opening a file
+					
+					if(map.containsKey("if-unmodified-since")) {
+						String sinceDate = map.get("if-unmodified-since");
+						if (!checkDateFormatValid(sinceDate)) {
+							try {
+								sendResponse(400,
+										"<b>400 Bad Request</b>",
+										false, httpVersionNum);
+							} catch (Exception e) {
+								logger.error("send 400 response failed");
+							}
+							continue;
+						}
+						
+						File currentFile = new File(filePath);
+						if (isAfterDate(sinceDate, currentFile)) {
+							try {
+								sendResponse(412,
+										"<b>412 Precondition Failed</b>",
+										false, httpVersionNum);
+							} catch (Exception e) {
+								logger.error("send 412 response failed");
+							}
+							continue;
+						}
+						
+					}
+					
+					
 					if (new File(filePath).isFile()) {
 
 						if (headReq) {
-							System.out.println("headReq!!");
+
 							try {
 								sendHeader(200, httpVersionNum);
 							} catch (Exception e) {
 								socket.close();
+								continue;
 							}
 						} else {
 							try {
@@ -250,10 +281,40 @@ public class PoolThread extends Thread {
 								if (socket.isClosed()) {
 									continue;
 								}
+
+								if (map.containsKey("if-modified-since")) {
+
+									String sinceDate = map
+											.get("if-modified-since");
+//									System.out.println("sinceDate is " + sinceDate);
+									if (!checkDateFormatValid(sinceDate)) {
+										try {
+											sendResponse(400,
+													"<b>400 Bad Request</b>",
+													false, httpVersionNum);
+										} catch (Exception e) {
+											logger.error("send 400 response failed");
+										}
+										continue;
+									}
+									
+									File currentFile = new File(filePath);
+									if (!isAfterDate(sinceDate, currentFile)) {
+										try {
+											sendResponse(304,
+													"<b>304 Not Modified</b>",
+													false, httpVersionNum);
+										} catch (Exception e) {
+											logger.error("send 304 response failed");
+										}
+										continue;
+									}
+								}
+
 								sendResponse(200, filePath, true,
 										httpVersionNum);
 							} catch (Exception e) {
-								logger.error("send 200 response failed");
+								logger.error("catch exception or send 200 response failed");
 								continue;
 							}
 						}
@@ -267,10 +328,10 @@ public class PoolThread extends Thread {
 								showFileForFolder(filePath, responseBuffer,
 										httpVersionNum);
 							} catch (Exception e) {
-								//logger.error("####show file failed");
+								// logger.error("####show file failed");
 								e.printStackTrace();
 								socket.close();
-								
+
 								continue;
 							}
 						}
@@ -289,6 +350,9 @@ public class PoolThread extends Thread {
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
+			} catch (ParseException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
 			try {
 				inFromClient.close();
@@ -302,10 +366,52 @@ public class PoolThread extends Thread {
 
 	}
 
+	
+
+	public boolean checkDateFormatValid(String value) {
+
+		SimpleDateFormat dateFormat = new SimpleDateFormat(
+				"EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+		dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+		try {
+			Date date = dateFormat.parse(value);
+			if (!value.equals(dateFormat.format(date))) {
+				return false;
+			}
+		} catch (ParseException e) {
+			// TODO Auto-generated catch block
+			return false;
+		}
+		return true;
+
+	}
+
+	public boolean isAfterDate(String sinceDate, File file)
+			throws ParseException {
+		SimpleDateFormat sdf = new SimpleDateFormat(
+				"EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+		System.out.println("here");
+		System.out.println(sinceDate);
+		String lastModify = sdf.format(file.lastModified());
+		
+		Date date1 = sdf.parse(sinceDate);
+		Date date2 = sdf.parse(lastModify);
+		System.out.println("date1" + date1);
+		System.out.println("date2" + date2);
+		if (date1.compareTo(date2) > 0) {
+			System.out.println("false");
+			return false;
+		} else {
+			return true;
+		}
+	}
+
 	public boolean checkValid(String path) {
+		// System.out.println(path);
 		Stack<String> stack = new Stack<String>();
-		String[] folders = path.split("/");
+		String[] folders = path.substring(1).split("/");
 		for (String str : folders) {
+
 			if (str.equals("..")) {
 				if (stack.isEmpty()) {
 					return false;
@@ -340,7 +446,8 @@ public class PoolThread extends Thread {
 
 	}
 
-	public void sendHeader(int statusCode, String httpVersion) throws IOException {
+	public void sendHeader(int statusCode, String httpVersion)
+			throws IOException {
 		String statusLine = getStatusLine(statusCode, httpVersion);
 		String time = "Date: " + getServerTime() + "\r\n";
 		String serverdetails = "Server: Java HTTPServer\r\n";
@@ -360,6 +467,10 @@ public class PoolThread extends Thread {
 
 	public String getContentType() {
 		String file = httpQueryString;
+		if (file.endsWith("/")) {
+			file = file.substring(0, file.length() - 1);
+		}
+
 		if (!file.contains(".")) {
 			return "";
 		} else {
@@ -370,6 +481,9 @@ public class PoolThread extends Thread {
 				ret = "text/html";
 				break;
 			case "html":
+				ret = "text/html";
+				break;
+			case "htm":
 				ret = "text/html";
 				break;
 			case "jpg":
@@ -403,6 +517,9 @@ public class PoolThread extends Thread {
 		case 200:
 			statusLine = "HTTP/" + httpVersion + " 200 OK" + "\r\n";
 			break;
+		case 304:
+			statusLine = "HTTP/" + httpVersion + " 304 Not Modified" + "\r\n";
+			break;
 		case 400:
 			statusLine = "HTTP/" + httpVersion + " 400 Bad Request" + "\r\n";
 			break;
@@ -411,6 +528,9 @@ public class PoolThread extends Thread {
 			break;
 		case 403:
 			statusLine = "HTTP/" + httpVersion + " 403 Forbidden" + "\r\n";
+			break;
+		case 412:
+			statusLine = "HTTP/" + httpVersion + " 412 Precondition Failed" + "\r\n";
 			break;
 		case 501:
 			statusLine = "HTTP/" + httpVersion + " 501 Not Implemented"
@@ -426,7 +546,8 @@ public class PoolThread extends Thread {
 		String serverdetails = "Server: Java HTTPServer\r\n";
 		String contentLengthLine = null;
 		String fileName = null;
-		String contentTypeLine = "Content-Type: text/html" + "\r\n";
+		String contentTypeLine = "Content-Type: " + getContentType() + "\r\n";
+		// System.out.println(contentTypeLine);
 		FileInputStream fin = null;
 
 		statusLine = getStatusLine(statusCode, httpVersion);
@@ -436,9 +557,10 @@ public class PoolThread extends Thread {
 			fin = new FileInputStream(fileName);
 			contentLengthLine = "Content-Length: "
 					+ Integer.toString(fin.available()) + "\r\n";
-			if (!fileName.endsWith(".htm") && !fileName.endsWith(".html")) {
-				contentTypeLine = "Content-Type: \r\n";
-			}
+			// if (!fileName.endsWith(".htm") && !fileName.endsWith(".html")) {
+			// contentTypeLine = "Content-Type: \r\n";
+			//
+			// }
 
 		} else {
 			responseString = this.HTML_START + responseString + this.HTML_END;
@@ -456,7 +578,7 @@ public class PoolThread extends Thread {
 		outToClient.writeBytes("Connection: close\r\n");
 
 		outToClient.writeBytes("\r\n");
-		
+
 		outToClient.flush();
 
 		if (isFile) {
@@ -465,8 +587,9 @@ public class PoolThread extends Thread {
 				sendFile(fin, outToClient);
 
 		} else {
-
-			outToClient.writeBytes(responseString);
+			
+			if(statusCode != 412 && statusCode != 304)
+				outToClient.writeBytes(responseString);
 
 		}
 

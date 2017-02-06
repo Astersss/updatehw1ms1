@@ -23,7 +23,7 @@ class HttpServer {
 		int maxNoOfTasks = 1000;
 		taskQueue = new BlockingQueue(maxNoOfTasks);
 		org.apache.log4j.BasicConfigurator.configure();
-		serverSocket = new ServerSocket(portNum);
+		serverSocket = new ServerSocket(portNum, 1000);
 		threadPool = new ThreadPool(noOfThreads, taskQueue, rootDirectory);
 		System.out.println("waiting connections....");
 		isTerminate = false; // create a flag in main thread
@@ -34,7 +34,7 @@ class HttpServer {
 			try {
 				if (!isTerminate) {
 					socket = serverSocket.accept();
-					socket.setSoTimeout(20000);
+					//socket.setSoTimeout(20000);
 				}
 			} catch (IOException e) {
 				System.err.println("Accept failed.");
